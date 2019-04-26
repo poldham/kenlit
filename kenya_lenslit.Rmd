@@ -1,0 +1,334 @@
+---
+title: "kenya_lens"
+author: "Paul Oldham"
+date: "24/04/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Kenya Data from the Lens
+
+The Lens is an open access database providing access to the scientific and patent literature. Scientific literature is drawn from Microsoft Academic Graph, Crossref and PubMed. Note that Lens data will replicate the information on Kenyan organisations drawn from Microsoft Academic Graph (as the data source is the same). However, the Lens provides an easy way to search across multiple data sources and fields and improves data capture. The Lens also provides links to citations in the patent literature. 
+
+```{r importlens, echo=FALSE, eval=FALSE}
+library(tidyverse)
+# search based on delimited dates produces 176,335. This is lower than a raw search of Lens Scholar which produced 186,323 results overall on the 24/04/2019. However, data can only be downloaded in chunks of upto 50,000 delimited by dates. Therefore the `missing` are pending further exploration. 
+
+# list the file names 
+filenames <- list.files("/Users/colinbarnes/kenlit/kenya_lens", full.names = TRUE)
+
+# function that avoids misreading of col entry types by specifying
+# tidies col names and converts to lowercase with no spaces. 
+import_lenslit <- function(path){
+  df <- readr::read_csv(path, col_names = TRUE, cols(
+`Lens ID` = col_character(),     
+`Languages` = col_character(),                     
+`Journal Country` = col_character(),                
+`ISSNs` = col_character(),                         
+`Publisher` = col_character(),                      
+`Source Title` = col_character(),                  
+`Title` = col_character(),                          
+`Fields of Study` = col_character(),               
+`Date Published` = col_date(format = ""),                 
+`Publication Year` = col_double(),              
+`Publication Type` = col_character(),               
+`Publication Supplementary Type` = col_character(),
+`Keywords` = col_character(),                       
+`Funding` = col_character(),                       
+`Issue Number` = col_character(),                   
+`Start Page` = col_character(),                    
+`End Page` = col_character(),                       
+`Author/s` = col_character(),                      
+`Abstract` = col_character(),                       
+`Volume` = col_character(),                        
+`MeSH Terms` = col_character(),                     
+`Chemicals` = col_character(),                     
+`Source URLs` = col_character(),                    
+`Patent Citation Count` = col_double(),         
+`PMID` = col_character(),                           
+`DOI` = col_character(),                           
+`Microsoft Academic ID` = col_character(),          
+`PMCID` = col_character(),                         
+`References` = col_character(),                     
+`Scholarly Citation Count` = col_double()
+)) %>% 
+    dplyr::rename(authors = "Author/s", issn = "ISSNs", source_urls = "Source URLs", mesh_terms = "MeSH Terms") %>% 
+    janitor::clean_names()
+  
+}
+# test the function
+test <- import_lenslit(path = "/Users/colinbarnes/kenlit/kenya_lens/kenya 1919-01-01 to 1995-01-01.csv")
+
+# map over multiple files. Test for duplicates on ID and deduplicate. 
+kenya_lenslit <- map_df(filenames, import_lenslit) %>% 
+  mutate(duplicated = duplicated(lens_id)) %>% 
+  filter(duplicated == FALSE)
+
+head(kenya_lenslit) %>% 
+  knitr::kable()
+```
+
+```{r eval=FALSE}
+library(tidyverse)
+# write the files
+# will need to go to storage online for download as too big for github
+
+write_csv(kenya_lenslit, "kenya_lens/kenya_lenslit.csv")
+save(kenya_lenslit, file = "kenya_lens/kenya_lenslit.rda")
+```
+
+### Identify Duplicate Records
+
+The Lens data will contain records that already exist in the Microsoft Academic Graph data for Kenya. We therefore want to identify the duplicate records in kenya_lenslit set. 
+
+To do this we start with some tidying up and saving the results. These steps are listed below. 
+
+```{r prepare_matches, echo=TRUE, eval=FALSE}
+library(tidyverse)
+
+load("data/kenya_lenslit.rda")
+
+# address potential inconsistency by trimming whitespace and ensuring cols are both of the same type
+
+kenya_papers <- kenya_papers %>% 
+  mutate(paperid = stringr::str_trim(paperid, side = "both")) %>%
+  mutate(paperid = as.character(paperid))
+
+save(kenya_papers, file = "data/kenya_papers.rda")
+write_csv(kenya_papers, "data/kenya_papers.csv")
+
+# reduce the kenya_papers to unique paperids and remove extra columns
+
+kenya_papers_unique <- kenya_papers %>% 
+  filter(duplicated_paperid == FALSE) %>% 
+  select(paperid, doi, doctype, papertitle, originaltitle, booktitle, year, date, publisher, journalid, conferenceseriesid, conferanceinstanceid, volume, issue, firstpage, lastpage, referencecount, paper_citation, estimatedcitation, originalvenue, duplicated_paperid)
+
+save(kenya_papers_unique, file = "data/kenya_papers_unique.rda")
+write_csv(kenya_papers_unique, "data/kenya_papers_unique.csv")
+
+# add paperid to kenya_lenslit and trim
+# replace NAs in paperid with "other" for other sources. Note that a unique id would be better when counting.
+
+kenya_lenslit <- kenya_lenslit %>% 
+  mutate(paperid = stringr::str_trim(microsoft_academic_id, side = "both"))
+
+# replace NAs in paperid with other
+kenya_lenslit <- kenya_lenslit %>% 
+  replace_na(list("paperid" = "other"))
+
+save(kenya_lenslit, file = "data/kenya_lenslit.rda")
+write_csv(kenya_lenslit, "data/kenya_lenslit.csv")
+```
+
+Following the tidy up steps we can then compare the two sets. 
+
+```{r match_papers_lenslit, echo=TRUE, eval=FALSE}
+library(tidyverse)
+# identify shared papers using microsoft_academic_id as the
+# paperid
+kenya_lenslit <- kenya_lenslit %>%
+  mutate(in_kenya_papers = kenya_lenslit$paperid %in% kenya_papers_unique$paperid)
+
+save(kenya_lenslit, file = "data/kenya_lenslit.rda")
+write_csv(kenya_lenslit, "data/kenya_lenslit.csv")
+
+kenya_lenslit %>%
+  filter(in_kenya_papers == TRUE) %>% 
+  nrow()
+```
+
+We have 15,681 duplicated records in the Lens data compared with the Kenya organisations data from MAG. Note that we might have expected that the total unique paperids in kenya papers (28,462) would appear in the Lens data. However, we used the MAG January 2019 records for the kenya papers table and the Lens may be using an earlier version. In some case the Lens also lists two paperids in the same column (in practice this rises to 15,741 matches for a difference of 60, so that is not the explanation). The most likely explanation is that we are using a more recent version of MAG than the Lens. 
+
+```{r echo=TRUE, eval=FALSE}
+kenya_lenslit %>% separate_rows(paperid, sep = ";") %>% 
+  mutate(inkenya2 = .$paperid %in% kenya_papers_unique$paperid) %>% 
+  filter(inkenya2 == TRUE) %>% 
+  nrow()
+```
+
+<!--- there are 176,335 rows. When separate rows for multiple paperids there are 177118 giving a difference of 783. This needs to be fixed at some point.--->
+
+We now filter the lens set and save the unique records, bearing in mind the issues identified above. 
+
+```{r fliter_lenslit, eval=FALSE, echo=TRUE}
+kenya_lenslit_unique <- kenya_lenslit %>% 
+  filter(in_kenya_papers == FALSE)
+
+save(kenya_lenslit_unique, file = "data/kenya_lenslit_unique.rda")
+write_csv(kenya_lenslit_unique, "kenya_lenslit_unique.csv")
+```
+
+This gives us 160,654 records from the Lens that make reference to Kenya but are not directly linked to a Kenya research organisation.
+
+### Mapping Paperids to Affiliation ids
+
+Data from the Lens presently lacks information on the author affiliation. However, for those records with a paperid we can retrieve this data by mapping the ids to the affiliations table in MAG. As that is a 42 gigabyte file it needs to be run on the Databricks Spark cluster or in an SQL database. 
+
+The workings for those tables are provided in the kenya_spark file. The outputs are in the kenya_lens folder. 
+
+Matching up the numbers
+
+1. kenya_lenslit_unique = 156,770 paper ids
+
+The above were mapped into the MAG cluster and returned
+
+1. kenlens_affiliation_papers = 154,813 paperids
+2. kenlens_affiliations_grid = 38,381 paperids
+
+The matching has dropped 1,957 paperids and this will need to be investigated later. 
+
+Affiliation id counts
+
+```{r affiliationid_count, echo=TRUE, eval=FALSE}
+library(tidyverse)
+kenlens_affiliation_papers %>% count(affiliationid) %>% nrow() # 5703
+kenlens_affiliations_grid %>% count(affiliationid) %>% nrow() # 5702
+```
+
+This means the matching between papers and the grid version of affiliations lost one organisation. Which id got lost?
+
+```{r check_affiliation, echo=TRUE, eval=FALSE}
+library(tidyverse)
+kenlens_affiliation_papers <- kenlens_affiliation_papers %>% mutate(found = .$affiliationid %in% kenlens_affiliations_grid$affiliationid)
+```
+
+The above reveals a significant number of organisations that presently lack a grid id but have a paperid. They are the 1 apparently missing I think
+
+```{r echo=TRUE, eval=FALSE}
+kenlens_affiliation_papers_noid <- kenlens_affiliation_papers %>% filter(found == FALSE)
+```
+
+Now review them by paper count
+
+```{r echo=TRUE, eval=FALSE}
+kenlens_affiliation_papers_noid %>%
+  mutate(originalaffiliation = str_trim(originalaffiliation, side = "both")) %>% 
+  drop_na(originalaffiliation) %>%
+  group_by(originalaffiliation) %>%
+  count() %>% View()
+```
+
+This reveals that there are a significant number of organisations and there is significant junk in the data such as , at the start of fields and * etc.
+
+The above data will need to be cleaned up in Vantage Point. 
+
+### Prepare data for cleaning
+
+TO DO Solution: write to a file, import into Vantage Point. Match where possible to the GRID table to improve the resolution of the data. 
+
+```{r echo=TRUE, eval=FALSE}
+kenlens_affiliation_papers_noid <- kenlens_affiliation_papers_noid %>%
+  mutate(originalaffiliation = str_trim(originalaffiliation, side = "both"))
+```
+
+```{r echo=TRUE, eval=FALSE}
+pat <- c("§ |§§§|¶|#N#|[*]|[**]
+|#N#            1
+|#N#            2
+|#N#            3
+|#N#            4
+|#N#            5
+|#N#            6
+|#N#            7
+|#N#            8
+|#N#            9
+|#N#        #N#       
+|#N#        
+|#N#1
+|#
+|†††
+|††
+|†
+|‡‡‡
+|‡‡
+|‡
+|1
+|2
+|3
+|4
+|5
+|6
+|7
+|8
+|9
+|10
+|11
+|12
+|13
+|14
+|15
+|16
+|17
+|18
+|19
+|20
+|a    
+|b    ")
+
+
+kenlens_affiliation_papers_noid <- kenlens_affiliation_papers_noid %>% mutate(originalaffiliation = str_replace(.$originalaffiliation, pat, ""))
+
+kenlens_affiliation_papers_noid <- kenlens_affiliation_papers_noid %>% mutate(originalaffiliation = str_trim(originalaffiliation, side = "both"))
+
+kenlens_affiliation_papers_noid %>% count(originalaffiliation) %>% View()
+
+pat <- c("§|#N#        |[*]|[**]|†††|†|‡‡‡|‡‡|‡")
+
+kenlens_affiliation_papers_noid <- kenlens_affiliation_papers_noid %>% mutate(originalaffiliation = str_replace(.$originalaffiliation, pat, ""))
+
+kenlens_affiliation_papers_noid <- kenlens_affiliation_papers_noid %>% mutate(originalaffiliation = str_trim(originalaffiliation, side = "both"))
+
+kenlens_affiliation_papers_noid %>% count(originalaffiliation) %>% View()
+
+
+```
+
+
+Write to file for Vantage Point clean up
+
+```{r eval=FALSE}
+writexl::write_xlsx(kenlens_affiliation_papers_noid, "kenya_lens/kenlens_affiliation_papers_noid.xlsx")
+```
+
+Clean up the names with nogridid in an initial step
+
+```{r eval=FALSE}
+kenlens_affiliation_papers_noid %>% drop_na(originalaffiliation) %>% count(originalaffiliation) %>% View()
+
+```
+
+
+### Splitting Fields (Field of Study, Keywords)
+
+Concatenated Fields need to be split
+
+```{r eval=FALSE}
+kenlens_fos <- kenya_lenslit %>%
+  separate_rows(fields_of_study, sep = ";") %>% 
+  mutate(fields_of_study = str_trim(fields_of_study, side = "both")) %>% 
+  select(lens_id, fields_of_study, doi, pmid, pmcid, microsoft_academic_id, paperid, in_kenya_papers)
+
+write_csv(kenlens_fos, "kenya_lens/kenlens_fos.csv")
+```
+
+```{r eval=FALSE}
+kenlens_keywords <- kenya_lenslit %>%
+  separate_rows(keywords, sep = ";") %>% 
+  mutate(keywords = str_trim(keywords, side = "both")) %>% 
+  select(lens_id, keywords, doi, pmid, pmcid, microsoft_academic_id, paperid, in_kenya_papers) %>% 
+  mutate(keywords = str_to_lower(keywords))
+
+write_csv(kenlens_keywords, "kenya_lens/kenlens_keywords.csv")
+```
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,69 @@
+---
+title: "Untitled"
+author: "Paul Oldham"
+date: "25/04/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Authors
+
+Note that the search of the Lens on all fields produced publications where the author name included the word Kenya. These need to be detected and removed from the dataset with the paperids. 
+
+Future searches with the Lens should seek to exclude persons names. 
+
+## Joining Authors Tables
+
+The kenya_authors data comes from the affiliationid based search of Microsoft Academic Graph. The kenya_lens_authors table comes from using the paperid in the Lens data to retrieve the author information from MAG (that search excluded any paperids that were already in the Kenya organisations data). 
+
+The two datasets should be joined for completeness but first some name cleaning needs to be done. 
+
+It will also be helpful to identify those that are linked explicitly to a Kenya organisation. 
+
+```{r}
+names(kenya_authors)
+```
+
+```{r}
+kenya_authors2 <- kenya_authors %>% select(paperid, authorid, affiliationid, authorsequencenumber, originalaffiliation, rankno, reviewname, reviewdisplayname, lastknownaffiliationid, authorpapercount, citationcount, createdate) %>% rename(authors_rankno = rankno, authors_normalizedname = reviewname, authors_displayname = reviewdisplayname, authors_lastknownaffiliationid = lastknownaffiliationid, authors_papercount = authorpapercount, authors_citationcount = citationcount, authors_createdate = createdate) %>% add_column(source = "kenya_organisation")
+names(kenya_authors2)
+```
+
+
+
+```{r}
+names(kenlens_authors)
+
+kenlens_authors <- kenlens_authors %>% add_column(source = "other")
+```
+
+```{r}
+authors_kenya <- bind_rows(kenya_authors2, kenlens_authors)
+```
+
+```{r}
+authors_kenya %>% count(source)
+```
+
+Remove names involving kenya
+
+Note that this may remove publications by the government where the govt is listed as the author as Kenya.
+
+```{r}
+authors_kenya <- authors_kenya %>% mutate(kenya_personname = str_detect(authors_normalizedname, " kenya$|^kenya "))
+```
+
+```{r}
+false_authors <- authors_kenya %>% filter(kenya_personname == TRUE)
+```
+
+
+Write to file 
+
+```{r}
+write_csv(authors_kenya, "authors_kenya.csv")
+```
+

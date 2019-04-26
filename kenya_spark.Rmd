@@ -1,0 +1,143 @@
+---
+title: "Untitled"
+author: "Paul Oldham"
+date: "01/04/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document contains the scripts for importing data from Spark into R. Later chunks show the workings for obtaining additional information from MAG on the Spark cluster from the Lens data using paperids. Specifically, the code to obtain the affiliation data from MAG.
+
+## Kenya import papers
+
+```{r}
+library(tidyverse)
+library(sparklyr)
+# establish a spark connection
+
+sc <- spark_connect(master = "local")
+
+spark_read_parquet(sc, "kenya_papers", "kenya_papers_spark_tbl")
+
+kenya_papers_tbl <- tbl(sc, "kenya_papers")
+
+kenya_papers_tbl %>% count() # 62,095
+
+kenya_papers <- collect(kenya_papers_tbl)
+```
+
+
+edit the names from the joins
+
+```{r}
+names(kenya_papers)
+```
+
+```{r}
+kenya_papers <- kenya_papers %>% rename(rankno = `rankno.x`, organisation_citation = `citationcount.x`, paper_citation = `citationcount.y`) %>% select(-`rankno.y`, -`createddate.x`, -`createddate.y`)
+
+write_csv(kenya_papers, "kenya_papers.csv")
+```
+
+```{r}
+spark_read_parquet(sc, "kenya_fos", "kenya_fosid_spark_tbl")
+
+kenya_fos_tbl <- tbl(sc, "kenya_fos")
+
+kenya_fos_tbl %>% count() # 255497
+
+kenya_fos <- collect(kenya_fos_tbl)
+```
+
+# Join to FOS table here
+
+a) import the fos table and copy to spark
+b) make the join on fieldofstudy id
+
+```{r}
+# note that this overwrites the original table
+kenya_fos <- inner_join(kenya_fos, fos, by = "fieldofstudyid")
+
+write_csv(kenya_fos, "kenya_fos.csv")
+```
+
+
+### Read in Authors
+
+This table refers to authors associated with a Kenya affiliation (source table is affiliation with GRID) and filtered to Kenya. 
+
+```{r}
+spark_read_parquet(sc, "kenya_papers_authors", "kenya_papers_authors_spark_tbl")
+
+kenya_authors_tbl <- tbl(sc, "kenya_papers_authors")
+
+kenya_authors_tbl %>% count() # 62095
+
+kenya_authors <- collect(kenya_authors_tbl)
+```
+
+## Lenslit data
+
+The lens provides the Microsoft Academic Graph paperid but does not provide the 
+
+- author affiliation 
+- author names (except as a concatenated list)
+- it does provide the field of study
+
+So, we want to access the author affiliation information in particular
+
+```{r}
+# imported paperid as character when should be numeric
+
+kenlenslit_paperid <- tbl(sc, "kenya_lenslit_paperid") %>% 
+  mutate(paperid = as.numeric(paperid))
+
+kenya_lenslit_affiliation_papers <- inner_join(kenlenslit_paperid, affiliation_papers, by = "paperid")
+
+spark_write_table(kenya_lenslit_affiliation_papers, "kenya_lenslit_affiliation_papers_tbl")
+
+affiliations_grid <- tbl(sc, "affiliations_grid_spark_tbl")
+
+kenya_lenslit_affiliations_grid_papers <- inner_join(kenya_lenslit_affiliation_papers, affiliations_grid, by = "affiliationid")
+
+spark_write_table(kenya_lenslit_affiliations_grid_papers, "kenya_lenslit_affiliations_grid_papers_tbl")
+
+authors <- tbl(sc, "authors_spark_tbl")
+
+kenya_lenslit_authors <- inner_join(kenya_lenslit_affiliation_papers, authors, by = "authorid")
+
+spark_write_table(kenya_lenslit_authors, "kenya_lenslit_authors_tbl")
+```
+
+### Read in extra lens data
+
+The lens paper ids were read into the MAG Spark cluster to retrieve the affiliation data and author tables.
+
+Note that the input of paperids and the output are not the same and this requires investigation and clean up. 
+
+```{r}
+spark_read_parquet(sc, "kenya_lenslit_affiliation_papers", "kenya_lens/kenya_lenslit_affiliation_papers_tbl")
+
+kenlenslit_affiliation_papers <- tbl(sc, "kenya_lenslit_affiliation_papers") %>% collect()
+
+write_csv(kenlenslit_affiliation_papers, "kenya_lens/kenlens_affiliation_papers.csv") 
+```
+
+```{r}
+spark_read_parquet(sc, "kenya_lenslit_affiliations_grid_papers", "kenya_lens/kenya_lenslit_affiliations_grid_papers_tbl")
+
+kenlenslit_affiliation_grid <- tbl(sc, "kenya_lenslit_affiliations_grid_papers") %>% collect()
+
+write_csv(kenlenslit_affiliation_grid, "kenya_lens/kenlens_affiliations_grid.csv") 
+```
+
+```{r}
+spark_read_parquet(sc, "kenya_lenslit_authors", "kenya_lens/kenya_lenslit_authors_tbl")
+
+kenlenslit_authors <- tbl(sc, "kenya_lenslit_authors") %>% collect()
+
+write_csv(kenlenslit_authors, "kenya_lens/kenlens_authors.csv")
+```

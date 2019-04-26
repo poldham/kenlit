@@ -1,0 +1,57 @@
+---
+title: "kenya_affiliations"
+author: "Paul Oldham"
+date: "25/04/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document describes the workings on affiliation data across the two data sources. 
+
+Affiliation data is contained in:
+
+a) kenya_papers. This is data for Kenyan organisations with a GRID id retrieved from Microsoft Academic Graph. 
+
+b) kenlen_affiliations_papers. This is data where the MAG paperid in the Lens data was used to retrieve the affiliation data from MAG January 2019 edition. Affiliation data is not otherwise available in the Lens data. 
+
+The issue is that while affiliation data may be present. Not all affiliations possess a GRID Id. Organisations with a GRID id are typically aggregated onto that ID. Organisations that lack a GRID id will normally be represented multiple times with variant names and will require cleaning.
+
+A second issue is how to address actual missing affiliation data. 
+
+
+### Create a single table for Tableau
+
+
+```{r}
+kenlens_affiliation_papers
+```
+
+```{r}
+kenlens_affiliations_grid %>% names()
+```
+
+```{r}
+kenlens_affiliation_grid_edit <- kenlens_affiliations_grid %>% 
+  select(paperid, affiliationid, grid_id, authorid, lat, lng, city, country, normalizedname, displayname)
+```
+
+```{r}
+names(kenya_papers)
+
+kenya_papers_edit <- kenya_papers %>% 
+  select(paperid, affiliationid, grid_id, authorid, lat, lng, city, country, normalizedname, displayname) %>% mutate(paperid = as.numeric(paperid))
+
+glimpse(kenya_papers_edit)
+```
+
+```{r}
+affiliations_kenya <- bind_rows(kenlens_affiliation_grid_edit, kenya_papers_edit)
+```
+
+```{r}
+write_csv(affiliations_kenya, "affiliations_kenya.csv")
+```
+

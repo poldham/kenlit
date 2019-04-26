@@ -1,0 +1,24 @@
+---
+title: "To Do"
+author: "Paul Oldham"
+date: "25/04/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Clean Up Tasks
+
+1. Remove person names including the literal name Kenya and purge paperids. In future with the Lens adjust the search if possible to avoid the author names field.
+
+Check that the removal of names including Kenya does not exclude government publications or institutional authors.
+
+2. Clean affiliation names lacking a grid id or affiliation id. Parse the entries to extract town and country names and geocode. 
+
+3. Address variance in count of results from the Lens in future updates.
+
+### Possible Future Development
+
+1. Text mine the title, abstract, keywords and fos fields for place names in Kenya using geonames. Then generate maps with coordinates linked to the data.
